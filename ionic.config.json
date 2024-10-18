@@ -1,0 +1,7 @@
+{
+  "name": "spell",
+  "integrations": {
+    "capacitor": {}
+  },
+  "type": "vue-vite"
+}
