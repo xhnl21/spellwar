@@ -1,5 +1,6 @@
 import { Scene } from "phaser";
 import { Capacitor } from '@capacitor/core';
+import clientSocketIO from './clientSocket';
 // obtener audios
 // https://pixabay.com/es/sound-effects/search/shields/
 export class PlayScene extends Scene {
@@ -7,7 +8,11 @@ export class PlayScene extends Scene {
         super({ key: 'PlayScene' })
     }
 
-    preload() {
+    static playerO
+    static socketClientGame = new clientSocketIO();
+    static players = {}; // Almacenar referencias a los jugadores
+    static bullets = {}; // Almacenar referencias a los jugadores
+    preload() {       
         this.load.plugin('rexvirtualjoystickplugin', 'assets/joyStick/plugins/rexvirtualjoystickplugin.min.js', true);
         this.load.image('buttonAD', 'assets/joyStick/buttons/darkA.png');
         this.load.image('buttonAW', 'assets/joyStick/buttons/whiteA.png');
@@ -19,9 +24,13 @@ export class PlayScene extends Scene {
         this.load.image('platform', 'assets/platform.png');
         this.load.image('leftArrow', 'assets/leftarrow.png');
         this.load.image('rightArrow', 'assets/rightarrow.png');
-        this.load.spritesheet('player', 'assets/player.png',
+
+        // creando imagen del player usando el socket id
+        PlayScene.playerIMG = 'player';
+        this.load.spritesheet(PlayScene.playerIMG, 'assets/player.png',
             { frameWidth: 32, frameHeight: 48 }
         );
+
         this.load.spritesheet('imgexplosion', 'assets/explosiona.png',
             { frameWidth: 192, frameHeight: 192 }
         );
@@ -51,8 +60,8 @@ export class PlayScene extends Scene {
         this.screenCenterX = this.screenWidth / 2;
         this.controlsAreaHeight = this.screenHeight * 0.2;
         this.gameAreaHeight = this.screenHeight - this.controlsAreaHeight;
-        let altoPlatform = this.gameAreaHeight + 128;;
-        let altoPlayer = this.gameAreaHeight + 103;
+        let altoPlatform = this.gameAreaHeight + 117;
+        let altoPlayer = this.gameAreaHeight + 100;
         let altoJoyStickX = 70;
         let altoJoyStickY = this.gameAreaHeight + 68;
         this.ultimaVezDisparo = 0;
@@ -203,8 +212,17 @@ export class PlayScene extends Scene {
         this.platform.displayWidth = this.scale.width;
         this.platform.setOrigin(0, 0).refreshBody();
 
-        this.player = this.physics.add.sprite(this.screenCenterX, altoPlayer, 'player');
-
+        // se obtiene el SocketId local
+        PlayScene.playerO = PlayScene.socketClientGame.getSocketId();
+        // PlayScene.players[PlayScene.playerO] = this.physics.add.sprite(this.screenCenterX, altoPlayer, PlayScene.playerIMG);
+        this.createPlayer(PlayScene.playerO, this.screenCenterX, altoPlayer);
+        PlayScene.socketClientGame.sendEvent('player', [{screenCenterX: this.screenCenterX, altoPlayer: altoPlayer}]);
+        
+        PlayScene.socketClientGame.getEvent('player').then((otherPlayer) => {
+            this.createPlayer(otherPlayer.socketId, otherPlayer.screenCenterX, otherPlayer.altoPlayer);
+            // PlayScene.players[otherPlayer.socketId] = this.physics.add.sprite(otherPlayer.screenCenterX, otherPlayer.altoPlayer, PlayScene.playerIMG);
+        }); 
+ 
         //////////////////////////////
         /////// Start Control ////////
         //////////////////////////////
@@ -242,7 +260,7 @@ export class PlayScene extends Scene {
         if (!this.anims.exists('left')) {
             this.anims.create({
                 key: "left",
-                frames: this.anims.generateFrameNumbers('player', { start: 0, end: 3 }),
+                frames: this.anims.generateFrameNumbers(PlayScene.playerIMG, { start: 0, end: 3 }),
                 frameRate: 10,
                 repeat: -1,
             });
@@ -251,30 +269,30 @@ export class PlayScene extends Scene {
         if (!this.anims.exists('turn')) {
             this.anims.create({
                 key: "turn",
-                frames: [{ key: 'player', frame: 4 }],
+                frames: [{ key: PlayScene.playerIMG, frame: 4 }],
             });
         }
 
         if (!this.anims.exists('right')) {
             this.anims.create({
                 key: "right",
-                frames: this.anims.generateFrameNumbers('player', { start: 5, end: 8 }),
+                frames: this.anims.generateFrameNumbers(PlayScene.playerIMG, { start: 5, end: 8 }),
                 frameRate: 10,
                 repeat: -1,
             });
         }
 
         // sets player physics
-        this.player.body.setGravityY(300);
-        this.player.setCollideWorldBounds(true);
+        PlayScene.players[PlayScene.playerO].body.setGravityY(300);
+        PlayScene.players[PlayScene.playerO].setCollideWorldBounds(true);
 
         // crea escudo azul
-        this.circle = this.add.circle(this.player.x, this.player.y, 35, 0x0000ff, 0.5); // Crea un círculo con color azul transparente
+        this.circle = this.add.circle(PlayScene.players[PlayScene.playerO].x, PlayScene.players[PlayScene.playerO].y, 35, 0x0000ff, 0.5); // Crea un círculo con color azul transparente
         this.circle.setDepth(1);
 
 
         // adds collider between player and platforms
-        this.physics.add.collider(this.player, this.platform);
+        this.physics.add.collider(PlayScene.players[PlayScene.playerO], this.platform);
 
         // Adds generated shield
         this.shields = this.physics.add.group();
@@ -282,8 +300,7 @@ export class PlayScene extends Scene {
         // Adds generated heart
         this.hearts = this.physics.add.group();
 
-        // Crear un grupo de balas
-        this.bullets = this.physics.add.group();
+        this.creeteBullets(PlayScene.playerO);
 
         // Adds generated stars
         this.stars = this.physics.add.group({
@@ -293,7 +310,7 @@ export class PlayScene extends Scene {
         const createStar = () => {
             let x = Math.random() * this.screenWidth;
             if (x < 12) {
-                x = 17
+                x = 17;
             }
             if (x === this.screenWidth) {
                 x = this.screenWidth - 17;
@@ -358,7 +375,7 @@ export class PlayScene extends Scene {
         });
 
         // Habilitar la colisión entre las balas y la roca
-        this.physics.add.collider(this.bullets, this.bombs, function (bombs, bullet) {
+        this.physics.add.collider(PlayScene.bullets[PlayScene.playerO], this.bombs, function (bombs, bullet) {
             // Destruir la bala y la roca al colisionar           
             bullet.destroy();
             getExp(bombs);
@@ -386,9 +403,9 @@ export class PlayScene extends Scene {
             this.levelUp();
         }
         // Adds overlap between player and stars
-        this.physics.add.overlap(this.player, this.stars, function (object1, object2) {
+        this.physics.add.overlap(PlayScene.players[PlayScene.playerO], this.stars, function (object1, object2) {
             this.getstart.play();
-            const star = (object1.key === 'player') ? object1 : object2;
+            const star = (object1.key === PlayScene.playerIMG) ? object1 : object2;
             star.destroy();
             this.score += 10;
             this.scoreText.setText('Score: ' + this.score);
@@ -400,16 +417,16 @@ export class PlayScene extends Scene {
             }
         }, null, this);
 
-        this.physics.add.overlap(this.player, this.shields, function (object1, object2) {
-            const shield = (object1.key === 'player') ? object1 : object2;
+        this.physics.add.overlap(PlayScene.players[PlayScene.playerO], this.shields, function (object1, object2) {
+            const shield = (object1.key === PlayScene.playerIMG) ? object1 : object2;
             shield.destroy();
             if (this.shield <= this.shieldMax) {
                 this.lifes('keydown-UP', 2);
             }
         }, null, this);
 
-        this.physics.add.overlap(this.player, this.hearts, function (object1, object2) {
-            const hearts = (object1.key === 'player') ? object1 : object2;
+        this.physics.add.overlap(PlayScene.players[PlayScene.playerO], this.hearts, function (object1, object2) {
+            const hearts = (object1.key === PlayScene.playerIMG) ? object1 : object2;
             hearts.destroy();
             if (this.life <= this.lifeMax) {
                 this.lifes('keydown-UP', 1);
@@ -417,7 +434,7 @@ export class PlayScene extends Scene {
         }, null, this);
 
         // Adds overlap between player and bombs
-        this.physics.add.overlap(this.player, this.bombs, function (object1, object2) {
+        this.physics.add.overlap(PlayScene.players[PlayScene.playerO], this.bombs, function (object1, object2) {
             if (this.life !== 0) {
                 let item = 1;
                 if (this.activeShield) {
@@ -427,7 +444,7 @@ export class PlayScene extends Scene {
             } else {
                 this.battlestars.pause();
                 this.gameover.play({ loop: true });
-                const bomb = (object1.key === 'player') ? object1 : object2;
+                const bomb = (object1.key === PlayScene.playerIMG) ? object1 : object2;
                 bomb.destroy();
                 createStarLoop.destroy();
                 createBombLoop.destroy();
@@ -450,34 +467,75 @@ export class PlayScene extends Scene {
         }, null, this);
     }
 
+    createPlayer(socketId, screenCenterX, altoPlayer) {
+        PlayScene.players[socketId] =  this.physics.add.sprite(screenCenterX, altoPlayer, PlayScene.playerIMG);
+    }
+    
+    creeteBullets(socketId) {
+        PlayScene.bullets[socketId] = this.physics.add.group();
+    }
     update() {
         ///////////////////////////////////////////
         ////////Start moviemto del Player//////////
         ///////////////////////////////////////////
+        let setVelocityX = 0;
+        let moveRL = 'turn';
+        let anims = false;
         if (this.typePlataform === 'movil') {
             let moveJoyStick = this.joyStick.createCursorKeys();
             if (this.cursors.left.isDown || moveJoyStick.left.isDown) {
-                this.player.setVelocityX(-this.seedMove);
-                this.player.anims.play('left', true);
+                setVelocityX = -this.seedMove;
+                play = 'left';
+                anims = true;
             } else if (this.cursors.right.isDown || moveJoyStick.right.isDown) {
-                this.player.setVelocityX(this.seedMove);
-                this.player.anims.play('right', true);
+                setVelocityX = this.seedMove;
+                play = 'right';
+                anims = true;
             } else {
-                this.player.setVelocityX(0);
-                this.player.anims.play('turn');
-            }
+                setVelocityX = 0;
+                play = 'turn';
+                anims = null;
+            }            
         } else {
             if (this.cursors.left.isDown) {
-                this.player.setVelocityX(-this.seedMove);
-                this.player.anims.play('left', true);
+                setVelocityX = -this.seedMove;
+                moveRL = 'left';
+                anims = true;
             } else if (this.cursors.right.isDown) {
-                this.player.setVelocityX(this.seedMove);
-                this.player.anims.play('right', true);
+                setVelocityX = this.seedMove;
+                moveRL = 'right';
+                anims = true;
             } else {
-                this.player.setVelocityX(0);
-                this.player.anims.play('turn');
+                setVelocityX = 0;
+                moveRL = 'turn';
+                anims = false;
             }
         }
+        PlayScene.players[PlayScene.playerO].setVelocityX(setVelocityX);
+        if (anims) {
+            PlayScene.players[PlayScene.playerO].anims.play(moveRL, true);
+        } else {
+            PlayScene.players[PlayScene.playerO].anims.play(moveRL);
+        }
+        PlayScene.socketClientGame.sendEvent('move', [{moveRL: moveRL, bool: anims, setVelocityX: setVelocityX}]);
+        PlayScene.socketClientGame.getEvent('move').then((otherPlayer) => {
+            if (PlayScene.players[otherPlayer.socketId] != undefined) {
+                PlayScene.players[otherPlayer.socketId].setVelocityX(otherPlayer.setVelocityX);
+                if (otherPlayer.bool) {
+                    PlayScene.players[otherPlayer.socketId].anims.play(otherPlayer.moveRL, otherPlayer.bool);
+                } else {
+                    PlayScene.players[otherPlayer.socketId].anims.play(otherPlayer.moveRL);
+                }
+            } else {
+                this.createPlayer(otherPlayer.socketId, this.screenCenterX, this.gameAreaHeight + 93);
+                PlayScene.players[otherPlayer.socketId].setVelocityX(otherPlayer.setVelocityX);
+                if (otherPlayer.bool) {
+                    PlayScene.players[otherPlayer.socketId].anims.play(otherPlayer.moveRL, otherPlayer.bool);
+                } else {
+                    PlayScene.players[otherPlayer.socketId].anims.play(otherPlayer.moveRL);
+                }
+            }
+        });
         /////////////////////////////////////////
         ////////End moviemto del Player//////////
         /////////////////////////////////////////
@@ -494,12 +552,12 @@ export class PlayScene extends Scene {
         }
         if (this.shield >= 100) {
             if (!this.circle) {
-                this.circle = this.add.circle(this.player.x, this.player.y, 35, 0x0000ff, 0.5);
+                this.circle = this.add.circle(PlayScene.players[PlayScene.playerO].x, PlayScene.players[PlayScene.playerO].y, 35, 0x0000ff, 0.5);
             }
         }
         if (this.circle) {
             // Actualizar la posición del círculo para que siga al jugador
-            this.circle.setPosition(this.player.x, this.player.y);
+            this.circle.setPosition(PlayScene.players[PlayScene.playerO].x, PlayScene.players[PlayScene.playerO].y);
         }
         ///////////////////////////////////
         ////////End Life & Shield//////////
@@ -525,6 +583,24 @@ export class PlayScene extends Scene {
             this.disparar();
             this.ultimaVezDisparo = this.obtenerTiempoActual();
         }
+        PlayScene.socketClientGame.getEvent('disparar').then((otherPlayer) => {
+            console.log(otherPlayer);
+            console.log('disparar');
+            if(PlayScene.bullets[otherPlayer.socketId] != undefined) {
+                const balas = PlayScene.bullets[otherPlayer.socketId].create(otherPlayer.x, otherPlayer.y, 'bullet');
+                this.blaster.play();
+                balas.setVelocityY(-1000); // Velocidad de la bala
+                balas.setAngle(-90);
+                balas.setDisplaySize(40, 40);
+            } else {
+                this.creeteBullets(otherPlayer.socketId);
+                const balas = PlayScene.bullets[otherPlayer.socketId].create(otherPlayer.x, otherPlayer.y, 'bullet');
+                this.blaster.play();
+                balas.setVelocityY(-1000); // Velocidad de la bala
+                balas.setAngle(-90);
+                balas.setDisplaySize(40, 40);
+            }
+        });
         //////////////////////////////
         ////////// End Fire //////////
         //////////////////////////////
@@ -642,11 +718,13 @@ export class PlayScene extends Scene {
         }
     }
     disparar() {
-        const bala = this.bullets.create(this.player.x, this.player.y, 'bullet');
+        const bala = PlayScene.bullets[PlayScene.playerO].create(PlayScene.players[PlayScene.playerO].x, PlayScene.players[PlayScene.playerO].y, 'bullet');
         this.blaster.play();
+        console.log('disparar');
         bala.setVelocityY(-1000); // Velocidad de la bala
         bala.setAngle(-90);
         bala.setDisplaySize(40, 40);
+        PlayScene.socketClientGame.sendEvent('disparar', [{x: PlayScene.players[PlayScene.playerO].x, y: PlayScene.players[PlayScene.playerO].y, bullet: 'bullet'}]);
     }
     obtenerTiempoActual() {
         return new Date().getTime();

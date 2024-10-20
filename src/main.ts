@@ -1,5 +1,5 @@
-import { createApp } from 'vue'
-import App from './App.vue'
+import { createApp } from 'vue';
+import App from './App.vue';
 import router from './router';
 
 import { IonicVue } from '@ionic/vue';
@@ -40,9 +40,8 @@ import {
 
 const app = createApp(App)
     .use(IonicVue)
-    .use(router);
-
-router.isReady().then(() => {
+    .use(router)
+    router.isReady().then(() => {
     // app.config.globalProperties.$store = store;
     // app.provide("$store", store);
     // app.config.globalProperties.$options = options;

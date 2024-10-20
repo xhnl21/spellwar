@@ -11,6 +11,15 @@ export default defineConfig({
     vue(),
     legacy()
   ],
+  server: {
+    proxy: {
+      '/socket.io': {
+        target: 'http://192.168.31.79:3000', // URL de tu servidor
+        changeOrigin: true,
+        ws: true,
+      },
+    },
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
